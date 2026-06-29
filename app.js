@@ -1151,7 +1151,6 @@ document.addEventListener('DOMContentLoaded', () => {
             updateAniversariantes(),
             updateCidadaosPorBairroChart(),
             updateCidadaosPorMunicipioChart(),
-            updateCidadaosPorMunicipioChart(),
             updateCidadaosPorSexoChart(),
             updateCidadaosPorFaixaEtariaChart()
         ]);
@@ -1438,39 +1437,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch(e) { console.warn('Chart município:', e); }
     }
 
-    async function updateCidadaosPorMunicipioChart() {
-        const ctx = document.getElementById('cidadaos-por-municipio-chart');
-        if (!ctx) return;
-        try {
-            const { data, error } = await sb.from('cidadaos').select('cidade');
-            if (error) throw error;
-            const contagem = (data || []).reduce((acc, c) => {
-                const cidade = c.cidade || 'Não Informado';
-                acc[cidade] = (acc[cidade] || 0) + 1;
-                return acc;
-            }, {});
-            const sorted = Object.entries(contagem).sort((a, b) => b[1] - a[1]);
-            const labels = sorted.map(([k]) => k);
-            const values = sorted.map(([, v]) => v);
-            const colors = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4','#84CC16','#F97316'];
-            if (cidadaosMunicipioChart) cidadaosMunicipioChart.destroy();
-            cidadaosMunicipioChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: { labels, datasets: [{ data: values, backgroundColor: colors.slice(0, labels.length) }] },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'bottom' },
-                        tooltip: { callbacks: { label: (c) => {
-                            const total = c.dataset.data.reduce((a, b) => a + b, 0);
-                            return ` ${c.label}: ${c.parsed} (${((c.parsed/total)*100).toFixed(1)}%)`;
-                        }}}
-                    }
-                }
-            });
-        } catch(e) { console.warn('Chart município:', e); }
-    }
-
+        
     async function updateCidadaosPorBairroChart() {
         const ctx = document.getElementById('cidadaos-por-bairro-chart');
         if (!ctx) return;
@@ -2229,12 +2196,24 @@ function closeMapModal() {
                 if (secao)  query = query.ilike('secao', `%${secao}%`);
                 query = query.order('zona', { ascending: true }).order('secao', { ascending: true }).order('name', { ascending: true });
 
-                const { data, error } = await query;
-                if (error) throw error;
+                // ── Paginação server-side: chunks de 1000, limite de segurança 5000 ──
+                let data = [];
+                let _lOffset = 0;
+                const _LPAGE = 1000;
+                const _LMAX  = 5000;
+                let _lTruncated = false;
+                while (true) {
+                    const { data: chunk, error } = await query.range(_lOffset, _lOffset + _LPAGE - 1);
+                    if (error) throw error;
+                    data = [...data, ...(chunk || [])];
+                    if (!chunk || chunk.length < _LPAGE) break;
+                    _lOffset += _LPAGE;
+                    if (data.length >= _LMAX) { _lTruncated = true; break; }
+                }
 
                 const liderNome = allLeaders.find(l => l.id === liderId)?.name || 'Liderança';
                 if (liderHeader) {
-                    liderHeader.innerHTML = `<span class="font-semibold text-blue-800">Liderança: ${liderNome}</span> <span class="text-blue-600 ml-2">${(data||[]).length} cidadão(s) com zona/seção cadastrada</span>`;
+                    liderHeader.innerHTML = `<span class="font-semibold text-blue-800">Liderança: ${liderNome}</span> <span class="text-blue-600 ml-2">${(data||[]).length} cidadão(s) com zona/seção cadastrada</span>${_lTruncated ? ' <span class="text-orange-600 font-semibold ml-2">⚠️ Exibindo os primeiros 5.000 resultados — use filtros para refinar.</span>' : ''}`;
                 }
 
                 liderTbody.innerHTML = '';
@@ -2291,16 +2270,25 @@ function closeMapModal() {
                 tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400">A carregar...</td></tr>';
                 if (empty) empty.classList.add('hidden');
 
-                let query = sb.from('cidadaos')
-                    .select('cidade, zona, secao, type')
-                    .not('zona', 'is', null)
-                    .not('zona', 'eq', '');
-                if (cidade) query = query.eq('cidade', cidade);
-                if (zona)   query = query.ilike('zona', `%${zona}%`);
-                if (secao)  query = query.ilike('secao', `%${secao}%`);
-
-                const { data, error } = await query;
-                if (error) throw error;
+                // ── Paginação server-side: chunks de 1000 para suportar 25k+ cadastros ──
+                let data = [];
+                let _offset = 0;
+                const _PAGE = 1000;
+                while (true) {
+                    let q = sb.from('cidadaos')
+                        .select('cidade, zona, secao, type')
+                        .not('zona', 'is', null)
+                        .not('zona', 'eq', '');
+                    if (cidade) q = q.eq('cidade', cidade);
+                    if (zona)   q = q.ilike('zona', `%${zona}%`);
+                    if (secao)  q = q.ilike('secao', `%${secao}%`);
+                    q = q.range(_offset, _offset + _PAGE - 1);
+                    const { data: chunk, error } = await q;
+                    if (error) throw error;
+                    data = [...data, ...(chunk || [])];
+                    if (!chunk || chunk.length < _PAGE) break;
+                    _offset += _PAGE;
+                }
 
                 if (!data || data.length === 0) {
                     tbody.innerHTML = '';
@@ -2568,7 +2556,7 @@ function closeMapModal() {
         const newPage = document.getElementById(pageId);
         if (newPage) {
             newPage.classList.remove('hidden');
-            const flexPages = ['dashboard-page','cidadaos-page','demandas-page','cobertura-page','backup-page'];
+            const flexPages = ['dashboard-page','cidadaos-page','demandas-page','cobertura-page','backup-page','utilizadores-page'];
             if (flexPages.includes(pageId)) newPage.classList.add('flex', 'flex-col');
         }
         document.querySelectorAll('#sidebar-nav a').forEach(link => {
@@ -2646,4 +2634,3 @@ function closeMapModal() {
         } catch (e) { return 'N/A'; }
     }
 });
-
