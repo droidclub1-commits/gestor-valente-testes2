@@ -1,6 +1,6 @@
 const SUPABASE_URL = 'https://wpeefnrnckqxolbiehiq.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndwZWVmbnJuY2txeG9sYmllaGlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM0MzcyNzksImV4cCI6MjA3OTAxMzI3OX0.L67CaZ4tRhI-zHt8pdo-nsfRKen_sJ6WaGPZ0I0aCpM';
-const EDGE_FUNCTION_URL = 'https://wpeefnrnckqxolbiehiq.supabase.co/functions/v1/quick-handler';
+const EDGE_FUNCTION_URL = 'https://memsmrsntvkneyylggto.supabase.co/functions/v1/quick-handler';
 const { createClient } = supabase;
 let sb, user = null, userRole = null; // userRole: 'admin' | 'cadastrador'
 try {
